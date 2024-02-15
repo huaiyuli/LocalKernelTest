@@ -152,6 +152,7 @@ class Gaussian_Weight_Spartan_Kernel(Kernel):
         def forward(self, x1: torch.Tensor, x2: torch.Tensor, diag: bool=False, **params):
                 res = ZeroLazyTensor() if not diag else 0
                 _k_g = self.global_kernel(x1, x2, diag=diag)
+                '''
                 if not diag:
                         #_w_g = (torch.unsqueeze((x1 - self.psi).norm(dim=-1).pow(2), -1) + torch.unsqueeze((x2 - self.psi).norm(dim=-1).pow(2), -2))/(2*self.sigma_g**2)
                         _w_g = self.omega_g(x1).unsqueeze(-1) + self.omega_g(x2).unsqueeze(-2)
@@ -160,7 +161,8 @@ class Gaussian_Weight_Spartan_Kernel(Kernel):
                         _w_g = self.omega_g(x1) + self.omega_g(x2)
 
                 res = res + _k_g.mul(torch.exp(_w_g))
-
+                '''
+                res = res + _k_g
                 _w_l_list1 = self.omega_l(x1)
                 _w_l_list2 = self.omega_l(x2)
 
