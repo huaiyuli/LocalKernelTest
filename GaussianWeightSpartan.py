@@ -12,6 +12,7 @@ from gpytorch.kernels import Kernel
 from linear_operator.operators import ZeroLinearOperator
 from gpytorch.distributions import MultivariateNormal
 from gpytorch.lazy import ZeroLazyTensor
+from math import sqrt
 
 
 class Gaussian_Weight_Spartan_Kernel(Kernel):
@@ -116,15 +117,19 @@ class Gaussian_Weight_Spartan_Kernel(Kernel):
 
                 self.initialize(raw_local_weight_var = self.raw_local_weight_var_constraint.inverse_transform(value))
 
-        def omega_g(self, x):
+        def omega_g(self, x, log_prob = True):
                 """Helper function for calculating global weights
                    Input x: tensor for the location where weight is calculated. 
                         dimension should be (batches) * length * ard_num_dims
+                   log_prob: Whether exports log(w_g) or w_g. Default the logarithm
+                        for kernel's use
                 """
+                if log_prob:
+                        return -(x-self.psi).norm(dim=-1).pow(2)/(2*self.sigma_g**2)
+                else:
+                        return torch.exp(-(x-self.psi).norm(dim=-1).pow(2)/(2*self.sigma_g**2))
 
-                return torch.exp(-(x-self.psi).norm(dim=-1).pow(2)/(2*self.sigma_g**2))
-        
-        def omega_l(self, x, firstkernel = False):
+        def omega_l(self, x, firstkernel = False, log_prob = True):
 
                 """Helper function for calculating local weights
                    Input x: tensor for the location where weight is calculated. 
@@ -135,26 +140,38 @@ class Gaussian_Weight_Spartan_Kernel(Kernel):
                         and not in a list.
                 """
                 if firstkernel:
+                        # Bypass log_prob since first kernel-only choice is only for plotting
                         return torch.exp(-(x - self.local_position).norm(dim=-1).pow(2)/(2*self.local_weight_var[0]**2))
                 else:
-                        return [torch.exp(-(x - self.local_position).norm(dim=-1).pow(2)/(2*local_var**2)) for local_var in self.local_weight_var]
+                        if not log_prob:
+                                return [torch.exp(-(x - self.local_position).norm(dim=-1).pow(2)/(2*local_var**2)) for local_var in self.local_weight_var]
+                        else:
+                                return [-(x - self.local_position).norm(dim=-1).pow(2)/(2*local_var**2) for local_var in self.local_weight_var]
 
 
         def forward(self, x1: torch.Tensor, x2: torch.Tensor, diag: bool=False, **params):
                 res = ZeroLazyTensor() if not diag else 0
                 _k_g = self.global_kernel(x1, x2, diag=diag)
                 if not diag:
-                        _w_g = (torch.unsqueeze((x1 - self.psi).norm(dim=-1).pow(2), -1) + torch.unsqueeze((x2 - self.psi).norm(dim=-1).pow(2), -2))/(2*self.sigma_g**2)
+                        #_w_g = (torch.unsqueeze((x1 - self.psi).norm(dim=-1).pow(2), -1) + torch.unsqueeze((x2 - self.psi).norm(dim=-1).pow(2), -2))/(2*self.sigma_g**2)
+                        _w_g = self.omega_g(x1).unsqueeze(-1) + self.omega_g(x2).unsqueeze(-2)
                 else:
-                        _w_g = ((x1 - self.psi).norm(dim=-1).pow(2) + (x2 - self.psi).norm(dim=-1).pow(2))/(2*self.sigma_g**2)
+                        #_w_g = ((x1 - self.psi).norm(dim=-1).pow(2) + (x2 - self.psi).norm(dim=-1).pow(2))/(2*self.sigma_g**2)
+                        _w_g = self.omega_g(x1) + self.omega_g(x2)
 
-                res = res + _k_g.mul(torch.exp(- _w_g)/3)
-                for _kernel, local_var in zip(self.local_kernels, self.local_weight_var):
+                res = res + _k_g.mul(torch.exp(_w_g))
+
+                _w_l_list1 = self.omega_l(x1)
+                _w_l_list2 = self.omega_l(x2)
+
+                for _kernel, _w_l_1, _w_l_2 in zip(self.local_kernels, _w_l_list1, _w_l_list2):
                         _k_l = _kernel(x1, x2, diag = diag)
                         if not diag:
-                                _w_l = (torch.unsqueeze((x1 - self.local_position).norm(dim=-1).pow(2), -1) + torch.unsqueeze((x2 - self.local_position).norm(dim=-1).pow(2), -2))/(2*local_var**2)
+                                #_w_l = (torch.unsqueeze((x1 - self.local_position).norm(dim=-1).pow(2), -1) + torch.unsqueeze((x2 - self.local_position).norm(dim=-1).pow(2), -2))/(2*local_var**2)
+                                _w_l = _w_l_1.unsqueeze(-1) + _w_l_2.unsqueeze(-2)
                         else:
-                                _w_l = (x1 - self.local_position).norm(dim=-1).pow(2) + (x2 - self.local_position).norm(dim=-1).pow(2)/(2*local_var**2)
-                        res = res + _k_l.mul(torch.exp(- _w_l))
+                                #_w_l = (x1 - self.local_position).norm(dim=-1).pow(2) + (x2 - self.local_position).norm(dim=-1).pow(2)/(2*local_var**2)
+                                _w_l = _w_l_1 + _w_l_2
+                        res = res + _k_l.mul(torch.exp(_w_l))
                 
                 return res
