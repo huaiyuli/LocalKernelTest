@@ -35,7 +35,7 @@ class Gaussian_Weight_Spartan_Kernel(Kernel):
                 # hyperparameters for weights
                 # Note: The logistic functions used to set interval constraints might cause a problem. The optimizer might favour either ends of the interval where the convergence seems to be reached because of almost 0 differentials.
                 self.register_parameter(
-                        name="local_position", 
+                        name="raw_local_position", 
                         parameter=torch.nn.Parameter(torch.zeros(*self.batch_shape,1,ard_num_dims))
                 )
                 if local_position_prior is not None:
@@ -91,17 +91,17 @@ class Gaussian_Weight_Spartan_Kernel(Kernel):
 
         @property
         def local_position(self):
-                return self._local_position
+                return self.raw_local_position
 
         @local_position.setter
         def local_position(self, value):
-                return self._set_local_position(value)
+                self._set_local_position(value)
         
         def _set_local_position(self, value):
                 if not torch.is_tensor(value):
                         value = torch.as_tensor(value).to(self.local_position)
                 
-                self._local_position = torch.nn.Parameter(value)
+                self.raw_local_position = torch.nn.Parameter(value)
 
         @property
         def local_weight_var(self):
